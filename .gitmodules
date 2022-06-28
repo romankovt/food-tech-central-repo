@@ -1,0 +1,9 @@
+[submodule "tardis-user"]
+	path = tardis-user
+	url = git@github.com:romankovt/tardis-user.git
+[submodule "cerberus-api-gateway"]
+	path = cerberus-api-gateway
+	url = git@github.com:romankovt/cerberus-api-gateway.git
+[submodule "docker-elk"]
+	path = docker-elk
+	url = git@github.com:romankovt/docker-elk.git
