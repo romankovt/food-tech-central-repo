@@ -1,0 +1,179 @@
+x-rails-app: &rails-app
+  image: food-tech-tardis:1.2.1
+  environment: &env
+    RAILS_ENV: ${RAILS_ENV:-development}
+  networks:
+      - food-tech
+      - docker-elk_elk
+  tmpfs:
+    - /tmp
+    - /app/tmp/pids
+
+x-sinatra-app: &sinatra-app
+  image: food-tech-cerberus:1.2.1
+  environment: &env
+    APP_ENV: ${APP_ENV:-development}
+  networks:
+    - food-tech
+    - docker-elk_elk
+  tmpfs:
+    - /tmp
+    - /app/tmp/pids
+
+x-rails-backend: &tardis-rails-backend
+  <<: *rails-app
+  stdin_open: true
+  tty: true
+  build:
+    context: ./tardis-user
+    args:
+      RUBY_VERSION: '3.1.2'
+      PG_MAJOR: '14'
+  volumes:
+    - ./tardis-user:/app
+    - bundle:/usr/local/bundle
+    - rails_cache:/app/tmp/cache
+    - history:/usr/local/hist
+    # - ./.psqlrc:/root/.psqlrc:ro
+    # - ./.bashrc:/root/.bashrc:ro
+  environment: &backend_environment
+    <<: *env
+    REDIS_URL: redis://redis:6379/
+    # DATABASE_URL: postgres://tardis-postgres:5432
+    MALLOC_ARENA_MAX: 2
+    WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+    BOOTSNAP_CACHE_DIR: /usr/local/bundle/_bootsnap
+    XDG_DATA_HOME: /app/tmp/caches
+    HISTFILE: /usr/local/hist/.bash_history
+    PSQL_HISTFILE: /usr/local/hist/.psql_history
+    IRB_HISTFILE: /usr/local/hist/.irb_history
+    EDITOR: vi
+  depends_on: &backend_depends_on
+    tardis-postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+x-sinatra-backend: &ceberus-sinatra-backend
+  <<: *sinatra-app
+  stdin_open: true
+  tty: true
+  build:
+    context: ./cerberus-api-gateway
+    args:
+      RUBY_VERSION: '3.1.2'
+  volumes:
+    - ./cerberus-api-gateway:/app
+    - bundle:/usr/local/bundle
+    - history:/usr/local/hist
+    - cerberus-api-gateway-logs:/app/logs
+    # - ${PWD}/cerberus-api-gateway/logs/:/app/logs
+    # - ./.psqlrc:/root/.psqlrc:ro
+    # - ./.bashrc:/root/.bashrc:ro
+  environment: &backend_environment
+    <<: *env
+    MALLOC_ARENA_MAX: 2
+    WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+    BOOTSNAP_CACHE_DIR: /usr/local/bundle/_bootsnap
+    XDG_DATA_HOME: /app/tmp/caches
+    HISTFILE: /usr/local/hist/.bash_history
+    PSQL_HISTFILE: /usr/local/hist/.psql_history
+    IRB_HISTFILE: /usr/local/hist/.irb_history
+    EDITOR: vi
+  depends_on: &sinatra_depends_on
+    redis:
+      condition: service_healthy
+
+services:
+  tardis-rails:
+    <<: *tardis-rails-backend
+    command: bundle exec rails
+
+  tardis-rails-web:
+    <<: *tardis-rails-backend
+    command: bundle exec rails server -b 0.0.0.0
+    ports:
+      - '3000:3000'
+
+  cerberus-api-gateway:
+    <<: *ceberus-sinatra-backend
+    environment:
+      - APP_ENV=development
+      - USER_API_HOST=tardis-rails-web
+      - AUTH_HMAC_SECRET=some_secret
+    ports:
+      - "4567:4567"
+    command: bundle exec puma -C config/puma.rb
+    # depends_on:
+      # - tardis-rails-web
+
+  tardis-postgres:
+    image: postgres:14.3
+    volumes:
+      # - .psqlrc:/root/.psqlrc:ro
+      - postgres:/var/lib/postgresql/data
+      - history:/user/local/hist
+      - ./tardis-user/.postgresql/postgresql.conf:/etc/postgresql.conf
+      - tardis-postgres-logs:/logs
+    environment:
+      PSQL_HISTFILE: /user/local/hist/.psql_history
+      POSTGRES_USER: tardis-user
+      POSTGRES_DBNAME: tardis-user
+      POSTGRES_HOST_AUTH_METHOD: trust
+      # POSTGRES_PASSWORD: postgres
+    # command: postgres -c config_file=/etc/postgresql.conf
+    command: |
+      postgres -c logging_collector=on
+        -c log_destination=csvlog
+        -c log_statement=none
+        -c log_checkpoints=on
+        -c log_connections=on
+        -c log_disconnections=on
+        -c log_lock_waits=on
+        -c log_min_duration_statement=0
+        -c log_directory=/logs
+        -c shared_preload_libraries=pg_stat_statements
+    networks:
+      - food-tech
+      - docker-elk_elk
+    ports:
+      - 5432
+    healthcheck:
+      test: pg_isready -U tardis-user -h 127.0.0.1
+      interval: 5s
+
+  redis:
+    image: redis:7.0-alpine
+    volumes:
+      - redis:/data
+    ports:
+      - 6379
+    healthcheck:
+      test: redis-cli ping
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+networks:
+  food-tech:
+  docker-elk_elk:
+    external: true
+
+volumes:
+  bundle:
+  history:
+  rails_cache:
+  postgres:
+  redis:
+  cerberus-api-gateway-logs:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${PWD}/cerberus-api-gateway/logs/
+  tardis-postgres-logs:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ${PWD}/logs/tardis-postgres

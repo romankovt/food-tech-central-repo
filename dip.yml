@@ -1,0 +1,84 @@
+version: '7.1'
+
+# Define default environment variables to pass
+# to Docker Compose
+environment:
+  RAILS_ENV: development
+
+compose:
+  files:
+    - docker-compose.yml
+  project_name: food-tech-test
+
+interaction:
+  # This command spins up a Rails container with the required dependencies (such as databases),
+  # and opens a terminal within it.
+  api-gateway:
+    description: All the commands for api-gateway service
+    service: cerberus-api-gateway
+    subcommands:
+      s:
+        description: Run puma server for api-gateway
+        command: bundle exec puma -C config/puma.rb
+        compose:
+          run_options: [service-ports, use-aliases]
+      bash:
+        description: Run an arbitrary script within a cerberus container (or open a shell without deps)
+        command: /bin/bash
+        compose:
+          run_options: [ no-deps ]
+      bundle:
+        description: Run Bundler commands
+        command: bundle
+        compose_run_options: [ no-deps ]
+
+  tardis-user:
+    description: All the commands for tardis-user service
+    service: tardis-rails
+    subcommands:
+      runner:
+        description: Open a Bash shell within a Rails container (with dependencies up)
+        command: /bin/bash
+      bash:
+        description: Run an arbitrary script within a container (or open a shell without deps)
+        command: /bin/bash
+        compose_run_options: [ no-deps ]
+      # A shortcut to run Bundler commands
+      bundle:
+        description: Run Bundler commands
+        command: bundle
+        compose_run_options: [ no-deps ]
+      # A shortcut to run RSpec (which overrides the RAILS_ENV)
+      rspec:
+        description: Run RSpec commands
+        environment:
+          RAILS_ENV: test
+        command: bundle exec rspec
+      rails:
+        description: Run Rails commands
+        command: bundle exec rails
+      "rails s":
+        description: Run Rails server at http://localhost:3000
+        service: tardis-rails-web
+        compose:
+          run_options: [service-ports, use-aliases]
+
+  psql:
+    description: Run Postgres psql console
+    service: tardis-rails
+    default_args: tardis-user
+    command: psql -h tardis-postgres -U tardis-user
+
+  'redis-cli':
+    description: Run Redis console
+    service: redis
+    command: redis-cli -h redis
+
+provision:
+  # We need the `|| true` part because some docker-compose versions
+  # cannot down a non-existent container without an error,
+  # see https://github.com/docker/compose/issues/9426
+  - dip compose down --volumes || true
+  - dip compose up -d tardis-postgres redis
+  - dip tardis-user bash -c bin/setup
+  - dip api-gateway bash -c bin/setup
