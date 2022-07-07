@@ -7,6 +7,3 @@
 [submodule "docker-elk"]
 	path = docker-elk
 	url = git@github.com:romankovt/docker-elk.git
-[submodule "mercury-partner"]
-	path = mercury-partner
-	url = git@github.com:romankovt/mercury-partner.git
