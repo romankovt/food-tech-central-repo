@@ -63,6 +63,37 @@ interaction:
         compose:
           run_options: [service-ports, use-aliases]
 
+  mercury-partner:
+    description: All the commands for mercury-partner service
+    service: mercury-rails
+    subcommands:
+      runner:
+        description: Open a Bash shell within a Rails container (with dependencies up)
+        command: /bin/bash
+      bash:
+        description: Run an arbitrary script within a container (or open a shell without deps)
+        command: /bin/bash
+        compose_run_options: [ no-deps ]
+      # A shortcut to run Bundler commands
+      bundle:
+        description: Run Bundler commands
+        command: bundle
+        compose_run_options: [ no-deps ]
+      # A shortcut to run RSpec (which overrides the RAILS_ENV)
+      rspec:
+        description: Run RSpec commands
+        environment:
+          RAILS_ENV: test
+        command: bundle exec rspec
+      rails:
+        description: Run Rails commands
+        command: bundle exec rails
+      "rails s":
+        description: Run Rails server at http://localhost:3001
+        service: mercury-rails-web
+        compose:
+          run_options: [service-ports, use-aliases]
+
   psql:
     description: Run Postgres psql console
     service: tardis-rails
@@ -79,6 +110,7 @@ provision:
   # cannot down a non-existent container without an error,
   # see https://github.com/docker/compose/issues/9426
   - dip compose down --volumes || true
-  - dip compose up -d tardis-postgres redis
+  - dip compose up -d tardis-postgres mercury-postgres redis
   - dip tardis-user bash -c bin/setup
+  - dip mercury-partner bash -c bin/setup
   - dip api-gateway bash -c bin/setup

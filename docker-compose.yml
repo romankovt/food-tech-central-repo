@@ -1,5 +1,4 @@
 x-rails-app: &rails-app
-  image: food-tech-tardis:1.2.1
   environment: &env
     RAILS_ENV: ${RAILS_ENV:-development}
   networks:
@@ -9,19 +8,9 @@ x-rails-app: &rails-app
     - /tmp
     - /app/tmp/pids
 
-x-sinatra-app: &sinatra-app
-  image: food-tech-cerberus:1.2.1
-  environment: &env
-    APP_ENV: ${APP_ENV:-development}
-  networks:
-    - food-tech
-    - docker-elk_elk
-  tmpfs:
-    - /tmp
-    - /app/tmp/pids
-
-x-rails-backend: &tardis-rails-backend
+x-tardis-rails-backend: &tardis-rails-backend
   <<: *rails-app
+  image: food-tech-tardis:1.2.1
   stdin_open: true
   tty: true
   build:
@@ -48,13 +37,59 @@ x-rails-backend: &tardis-rails-backend
     PSQL_HISTFILE: /usr/local/hist/.psql_history
     IRB_HISTFILE: /usr/local/hist/.irb_history
     EDITOR: vi
-  depends_on: &backend_depends_on
+  depends_on:
     tardis-postgres:
       condition: service_healthy
     redis:
       condition: service_healthy
 
-x-sinatra-backend: &ceberus-sinatra-backend
+x-mercury-rails-backend: &mercury-rails-backend
+  <<: *rails-app
+  image: food-tech-mercury:1.0.0
+  stdin_open: true
+  tty: true
+  build:
+    context: ./mercury-partner
+    args:
+      RUBY_VERSION: '3.1.2'
+      PG_MAJOR: '14'
+  volumes:
+    - ./mercury-partner:/app
+    - bundle:/usr/local/bundle
+    - rails_cache:/app/tmp/cache
+    - history:/usr/local/hist
+    # - ./.psqlrc:/root/.psqlrc:ro
+    # - ./.bashrc:/root/.bashrc:ro
+  environment: &backend_environment
+    <<: *env
+    REDIS_URL: redis://redis:6379/
+    # DATABASE_URL: postgres://tardis-postgres:5432
+    MALLOC_ARENA_MAX: 2
+    WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+    BOOTSNAP_CACHE_DIR: /usr/local/bundle/_bootsnap
+    XDG_DATA_HOME: /app/tmp/caches
+    HISTFILE: /usr/local/hist/.bash_history
+    PSQL_HISTFILE: /usr/local/hist/.psql_history
+    IRB_HISTFILE: /usr/local/hist/.irb_history
+    EDITOR: vi
+  depends_on:
+    mercury-postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+x-sinatra-app: &sinatra-app
+  image: food-tech-cerberus:1.2.1
+  environment: &env
+    APP_ENV: ${APP_ENV:-development}
+  networks:
+    - food-tech
+    - docker-elk_elk
+  tmpfs:
+    - /tmp
+    - /app/tmp/pids
+
+x-ceberus-sinatra-backend: &ceberus-sinatra-backend
   <<: *sinatra-app
   stdin_open: true
   tty: true
@@ -84,6 +119,29 @@ x-sinatra-backend: &ceberus-sinatra-backend
     redis:
       condition: service_healthy
 
+x-postgres-db: &postgres-db
+  image: postgres:14.3
+  command: |
+    postgres -c logging_collector=on
+      -c log_statement=none
+      -c log_checkpoints=on
+      -c log_connections=on
+      -c log_disconnections=on
+      -c log_lock_waits=on
+      -c log_min_duration_statement=0
+  # -c log_destination=csvlog
+  #     -c log_directory=/logs
+  #     -c shared_preload_libraries=pg_stat_statements
+  networks:
+    - food-tech
+    - docker-elk_elk
+  ports:
+    - 5432
+  healthcheck:
+    test: pg_isready -U tardis-user -h 127.0.0.1
+    interval: 5s
+
+
 services:
   tardis-rails:
     <<: *tardis-rails-backend
@@ -95,6 +153,16 @@ services:
     ports:
       - '3000:3000'
 
+  mercury-rails:
+    <<: *mercury-rails-backend
+    command: bundle exec rails
+
+  mercury-rails-web:
+    <<: *mercury-rails-backend
+    command: bundle exec rails server -b 0.0.0.0
+    ports:
+      - '3001:3000'
+
   cerberus-api-gateway:
     <<: *ceberus-sinatra-backend
     environment:
@@ -104,43 +172,30 @@ services:
     ports:
       - "4567:4567"
     command: bundle exec puma -C config/puma.rb
-    # depends_on:
-      # - tardis-rails-web
 
   tardis-postgres:
-    image: postgres:14.3
+    <<: *postgres-db
     volumes:
-      # - .psqlrc:/root/.psqlrc:ro
-      - postgres:/var/lib/postgresql/data
+      - tardis-postgres:/var/lib/postgresql/data
       - history:/user/local/hist
-      - ./tardis-user/.postgresql/postgresql.conf:/etc/postgresql.conf
+      #- ./tardis-user/.postgresql/postgresql.conf:/etc/postgresql.conf
       - tardis-postgres-logs:/logs
     environment:
-      PSQL_HISTFILE: /user/local/hist/.psql_history
+      PSQL_HISTFILE: /user/local/hist/.tardis_psql_history
       POSTGRES_USER: tardis-user
       POSTGRES_DBNAME: tardis-user
       POSTGRES_HOST_AUTH_METHOD: trust
-      # POSTGRES_PASSWORD: postgres
-    # command: postgres -c config_file=/etc/postgresql.conf
-    command: |
-      postgres -c logging_collector=on
-        -c log_destination=csvlog
-        -c log_statement=none
-        -c log_checkpoints=on
-        -c log_connections=on
-        -c log_disconnections=on
-        -c log_lock_waits=on
-        -c log_min_duration_statement=0
-        -c log_directory=/logs
-        -c shared_preload_libraries=pg_stat_statements
-    networks:
-      - food-tech
-      - docker-elk_elk
-    ports:
-      - 5432
-    healthcheck:
-      test: pg_isready -U tardis-user -h 127.0.0.1
-      interval: 5s
+
+  mercury-postgres:
+    <<: *postgres-db
+    volumes:
+      - mercury-postgres:/var/lib/postgresql/data
+      - history:/user/local/hist
+    environment:
+      PSQL_HISTFILE: /user/local/hist/.mercury_psql_history
+      POSTGRES_USER: mercury-partner
+      POSTGRES_DBNAME: mercury-partner
+      POSTGRES_HOST_AUTH_METHOD: trust
 
   redis:
     image: redis:7.0-alpine
@@ -161,9 +216,10 @@ networks:
 
 volumes:
   bundle:
-  history:
   rails_cache:
-  postgres:
+  history:
+  tardis-postgres:
+  mercury-postgres:
   redis:
   cerberus-api-gateway-logs:
     driver: local
