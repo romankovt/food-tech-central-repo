@@ -1,5 +1,4 @@
 # central-repo custom .gitignore
-logs
 .bashrc
 .psqlrc
 
