@@ -142,7 +142,6 @@ x-postgres-db: &postgres-db
     test: pg_isready -U tardis-user -h 127.0.0.1
     interval: 5s
 
-
 services:
   tardis-rails:
     <<: *tardis-rails-backend
