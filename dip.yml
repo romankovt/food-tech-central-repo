@@ -85,6 +85,12 @@ interaction:
         environment:
           RAILS_ENV: test
         command: bundle exec rspec
+      rake:
+        description: Run rake command
+        service: mercury-rails-web
+        command: bundle exec rake
+        compose:
+          run_options: [service-ports, use-aliases]
       rails:
         description: Run Rails commands
         command: bundle exec rails
