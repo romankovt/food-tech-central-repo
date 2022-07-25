@@ -129,6 +129,7 @@ x-postgres-db: &postgres-db
       -c log_disconnections=on
       -c log_lock_waits=on
       -c log_min_duration_statement=0
+      -c wal_level=logical
   # -c log_destination=csvlog
   #     -c log_directory=/logs
   #     -c shared_preload_libraries=pg_stat_statements
