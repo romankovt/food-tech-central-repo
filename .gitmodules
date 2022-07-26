@@ -10,3 +10,6 @@
 [submodule "mercury-partner"]
 	path = mercury-partner
 	url = git@github.com:romankovt/mercury-partner.git
+[submodule "flash-courier"]
+	path = flash-courier
+	url = git@github.com:romankovt/flash-courier.git
